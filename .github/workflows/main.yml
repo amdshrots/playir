@@ -14,6 +14,7 @@ jobs:
     - name: Download and Install Playit
       run: |
         Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        curl -L -o Adobe_After_Effects_2025.zip "https://s2-download.xyz/01b60eaa21942710/Adobe_After_Effects_2025_%28v25.2.2.002%29_Multilingual_%5BFileCR%5D.zip?download_token=7057d0942a022adcc26ed61a3244a032c8f55c61a9b3c810b659be4d9f01be12"
         Start-Sleep -Seconds 5  # Give some time for the download to complete
 
         
