@@ -1,35 +1,48 @@
 name: Playit RDP Tunnel
+
 on:
-workflow_dispatch:
+  workflow_dispatch:
+
 jobs:
-setup-rdp-tunnel:
-runs-on: windows-latest
-steps:
-- name: Check out the repository
-  uses: actions/checkout@v2
+  setup-rdp-tunnel:
+    runs-on: windows-latest
+    # Optional: You can set a timeout for the entire job.
+    # GitHub's maximum for hosted runners is 6 hours (360 minutes).
+    # timeout-minutes: 350
 
-- name: Download and Install Playit
-  run: |
-    Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-    Start-Sleep -Seconds 5  # Give some time for the download to complete
+    steps:
+    - name: Check out the repository
+      uses: actions/checkout@v4
 
-    
-# Default, optional.
-- name: Enable TS
-  run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-- run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-- run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-- run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+    - name: Download Playit Agent
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        Start-Sleep -Seconds 5 # Allow time for download to complete
+      shell: powershell
 
-- name: Start Playit and Set Up RDP Tunnel
-  env:
-    PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
-  run: |
-    Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
-    Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+    - name: Configure Remote Desktop and User
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+        $Password = ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force # Consider using a secret for the password if this repo is public
+        Set-LocalUser -Name "runneradmin" -Password $Password
+      shell: powershell
 
-    
-# Prevent workflow to stop
-- name: Keep the GitHub Action Runner Alive
-  run: |
-      Start-Sleep -Seconds 11800  # Adjust the duration based on your needs
+    - name: Start Playit Tunnel Agent
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+      run: |
+        # Start the Playit agent in the background using the provided secret key.
+        # This process will manage the tunnel.
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+      shell: powershell
+        
+    - name: Keep the GitHub Action Runner Alive
+      run: |
+        # This step keeps the job running so the RDP tunnel remains active.
+        # Adjust the sleep duration as needed. Max job time on GitHub is ~6 hours.
+        # Example: 5 hours and 50 minutes = 21000 seconds.
+        Start-Sleep -Seconds 21000
+      shell: powershell
