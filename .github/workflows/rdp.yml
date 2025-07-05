@@ -22,7 +22,7 @@ jobs:
           Write-Host "Configuring WireGuard Server..."
           cd "C:\Program Files\WireGuard"
           $serverPrivateKey = (.\wg.exe genkey)
-          $serverPublicKey = ($serverPrivateKey | .\wg.g pubkey)
+          $serverPublicKey = ($serverPrivateKey | .\wg.exe pubkey)
           $clientPrivateKey = (.\wg.exe genkey)
           $clientPublicKey = ($clientPrivateKey | .\wg.exe pubkey)
           @"
