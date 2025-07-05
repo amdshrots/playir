@@ -18,7 +18,7 @@ jobs:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
         run: |
           Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow &&
 
       - name: Starting things
         run: |
