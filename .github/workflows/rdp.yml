@@ -1,4 +1,4 @@
-name: The Final Guaranteed WireGuard Gateway
+name: The Final Diagnostic Gateway
 on:
   workflow_dispatch:
 
@@ -6,30 +6,22 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Build, Configure, and Display All
+      - name: Build and Configure Server
         id: main_build
         run: |
-          # --- PART A: DOWNLOAD AND WAIT FOR INSTALL ---
-          Write-Host "Downloading tools..."
+          # --- PART A: DOWNLOAD AND INSTALL ---
+          Write-Host "Downloading and Installing Tools..."
           Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
           Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-0.5.3.msi" -OutFile "wireguard.msi"
-          
-          Write-Host "Installing WireGuard and WAITING for completion..."
-          # THIS IS THE FIX: Start-Process with -Wait forces the script to pause until the installation is 100% finished.
           Start-Process -FilePath "msiexec.exe" -ArgumentList "/i wireguard.msi /qn" -Wait
-          Write-Host "WireGuard installation complete. Proceeding..."
-
-          # --- PART B: FORGE KEYS & CONFIGURE SERVER ---
-          # Now that we know the path exists, we can proceed.
-          cd "C:\Program Files\WireGuard"
           
-          Write-Host "Generating cryptographic keys..."
+          # --- PART B: CONFIGURE WIREGUARD ---
+          Write-Host "Configuring WireGuard..."
+          cd "C:\Program Files\WireGuard"
           $serverPrivateKey = (.\wg.exe genkey)
-          $serverPublicKey = ($serverPrivateKey | .\wg.exe pubkey)
+          $serverPublicKey = ($serverPrivateKey | .\wg.g pubkey)
           $clientPrivateKey = (.\wg.exe genkey)
           $clientPublicKey = ($clientPrivateKey | .\wg.exe pubkey)
-
-          Write-Host "Configuring the remote server..."
           @"
           [Interface]
           PrivateKey = $serverPrivateKey
@@ -41,24 +33,33 @@ jobs:
           "@ | Set-Content wg0.conf
           .\wireguard.exe /installservice wg0.conf
           New-NetNat -Name "WireGuardNAT" -InternalIPInterfaceAddressPrefix 10.0.0.0/24
-
-          # --- PART C: START PLAYIT AGENT ---
-          Write-Host "Starting Playit.gg agent..."
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -NoNewWindow
           
-          # --- PART D: DISPLAY THE FINAL, COMPLETE CLIENT CONFIG ---
-          Write-Host "--- COPY EVERYTHING BELOW THIS LINE INTO A NEW WIREGUARD TUNNEL ---"
+          # --- PART C: OUTPUT THE CLIENT CONFIG ---
+          # We are saving the client key to a file so the next step can read it if needed,
+          # but the main purpose is to have all variables ready for the final display.
+          $clientPrivateKey | Set-Content "$env:USERPROFILE\client-private.key"
+          $serverPublicKey | Set-Content "$env:USERPROFILE\server-public.key"
+          
+          $clientKeyForDisplay = Get-Content "$env:USERPROFILE\client-private.key"
+          $serverKeyForDisplay = Get-Content "$env:USERPROFILE\server-public.key"
+          
+          Write-Host "--- COPY EVERYTHING BELOW THIS LINE ---"
           Write-Host "[Interface]"
-          Write-Host "PrivateKey = $clientPrivateKey"
+          Write-Host "PrivateKey = $clientKeyForDisplay"
           Write-Host "Address = 10.0.0.2/24"
           Write-Host "DNS = 1.1.1.1"
           Write-Host ""
           Write-Host "[Peer]"
-          Write-Host "PublicKey = $serverPublicKey"
+          Write-Host "PublicKey = $serverKeyForDisplay"
           Write-Host "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
           Write-Host "AllowedIPs = 0.0.0.0/0"
           Write-Host "PersistentKeepalive = 25"
-          Write-Host "------------------------------------------------------------------"
+          Write-Host "------------------------------------"
 
-      - name: Keep Runner Alive
-        run: Start-Sleep -Seconds 21000
+      - name: Start Playit Agent and Report Status
+        env:
+          PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
+        run: |
+          Write-Host "Attempting to start Playit agent. The following lines are the LIVE output from the agent..."
+          # --- THE FIX: We run Playit directly to see its output. This step will now "hang" here, which is what keeps the runner alive. ---
+          & "$env:USERPROFILE\playit.exe" --secret $env:PLAYIT_AUTH_KEY
