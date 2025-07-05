@@ -1,6 +1,6 @@
 name: Network Tunnel Workflow
 
-on: workflow_dispatch # Allows you to trigger it manually
+on: workflow_dispatch
 
 jobs:
   build:
@@ -11,12 +11,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y openssh-server
-        sudo useradd -m runner
+        # The 'runner' user already exists, so we just set its password.
         sudo bash -c 'echo "runner:runnerpassword" | chpasswd' # Change this password!
         sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo sed -i 's/PasswordAuthentication no/#PasswordAuthentication no/' /etc/ssh/sshd_config
         sudo service ssh start
-        echo "SSH Server is running."
+        echo "SSH Server is running for the existing 'runner' user."
 
     - name: Expose SSH Port using bore.pub
       run: |
@@ -24,8 +24,3 @@ jobs:
         echo "Bore installed. Starting tunnel..."
         echo "Connect to the port shown below from your local machine."
         /tmp/bore local 22 --to bore.pub
-        
-    # You can add your RDP setup step here if you still want it.
-    # It will run in the background while the bore tunnel is active.
-    # - name: Setup RDP
-    #   ... your RDP steps ...
