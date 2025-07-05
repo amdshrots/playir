@@ -1,55 +1,59 @@
-name: WireGuard VPN Gateway
+name: Autonomous WireGuard VPN Gateway (v3 - Final)
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Download Tools (Playit & WireGuard)
+      - name: Download, Configure, and Display Everything
+        id: build_and_configure
         run: |
+          # --- PART A: DOWNLOAD TOOLS ---
+          Write-Host "Downloading Playit and WireGuard..."
           Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
           Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-0.5.3.msi" -OutFile "wireguard.msi"
           msiexec.exe /i "wireguard.msi" /qn
-
-      - name: Configure and Start WireGuard Server
-        run: |
-          # Generate the server's private and public keys
           cd "C:\Program Files\WireGuard"
-          .\wg.exe genkey | Set-Content server-private.key
-          Get-Content server-private.key | .\wg.exe pubkey | Set-Content server-public.key
-          
-          # Create the WireGuard server configuration file
-          $serverPrivateKey = Get-Content server-private.key
+
+          # --- PART B: FORGE ALL KEYS AND SERVER CONFIG ---
+          Write-Host "Generating cryptographic keys..."
+          $serverPrivateKey = (.\wg.exe genkey)
+          $serverPublicKey = ($serverPrivateKey | .\wg.g pubkey)
+          $clientPrivateKey = (.\wg.exe genkey)
+          $clientPublicKey = ($clientPrivateKey | .\wg.exe pubkey)
+
+          # --- PART C: CREATE AND INSTALL SERVER CONFIGURATION ---
+          Write-Host "Configuring the remote server..."
           @"
           [Interface]
           PrivateKey = $serverPrivateKey
           Address = 10.0.0.1/24
           ListenPort = 51820
+          [Peer]
+          PublicKey = $clientPublicKey
+          AllowedIPs = 10.0.0.2/32
           "@ | Set-Content wg0.conf
-          
-          # Install and start the WireGuard service
           .\wireguard.exe /installservice wg0.conf
-          
-      - name: Start Playit.gg Agent
+          New-NetNat -Name "WireGuardNAT" -InternalIPInterfaceAddressPrefix 10.0.0.0/24
+
+          # --- PART D: DISPLAY THE FINAL CLIENT CONFIGURATION ---
+          Write-Host "--- COPY EVERYTHING BELOW THIS LINE INTO A NEW WIREGUARD TUNNEL ---"
+          Write-Host "[Interface]"
+          Write-Host "PrivateKey = $clientPrivateKey"
+          Write-Host "Address = 10.0.0.2/24"
+          Write-Host "DNS = 1.1.1.1"
+          Write-Host ""
+          Write-Host "[Peer]"
+          Write-Host "PublicKey = $serverPublicKey"
+          Write-Host "Endpoint = response-dangerous.gl.at.ply.gg:4842"
+          Write-Host "AllowedIPs = 0.0.0.0/0"
+          Write-Host "PersistentKeepalive = 25"
+          Write-Host "------------------------------------------------------------------"
+
+      - name: Start Playit.gg Agent and Keep Alive
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
-        run: Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
-          
-      - name: Display Client Configuration
         run: |
-          # Display the necessary info for the client PC to connect
-          echo "--- YOUR WIREGUARD CLIENT CONFIG ---"
-          echo "[Interface]"
-          echo "PrivateKey = PASTE_YOUR_LOCAL_PC_PRIVATE_KEY_HERE"
-          echo "Address = 10.0.0.2/24"
-          echo "DNS = 1.1.1.1"
-          echo ""
-          echo "[Peer]"
-          $serverPublicKey = Get-Content "C:\Program Files\WireGuard\server-public.key"
-          echo "PublicKey = $serverPublicKey"
-          echo "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
-          echo "AllowedIPs = 0.0.0.0/0"
-          echo "------------------------------------"
-
-      - name: Keep Runner Alive
-        run: Start-Sleep -Seconds 21000
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
+          Start-Sleep -Seconds 21000
