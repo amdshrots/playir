@@ -1,48 +1,55 @@
-name: RDP & True Forged SOCKS5 Proxy
+name: WireGuard VPN Gateway
 on:
   workflow_dispatch:
 jobs:
-  setup-rdp-tunnel:
+  build:
     runs-on: windows-latest
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v2
-
-      - name: Configure and Enable RDP
+      - name: Download Tools (Playit & WireGuard)
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+          Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-0.5.3.msi" -OutFile "wireguard.msi"
+          msiexec.exe /i "wireguard.msi" /qn
 
-      - name: Download Playit Agent
-        run: Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-
-      - name: Forge the Go SOCKS Proxy from Source
+      - name: Configure and Start WireGuard Server
         run: |
-          # Download the source code zip file
-          Invoke-WebRequest -Uri "https://github.com/serjs/socks5-server/archive/refs/tags/v0.0.3.zip" -OutFile "socks_source.zip"
+          # Generate the server's private and public keys
+          cd "C:\Program Files\WireGuard"
+          .\wg.exe genkey | Set-Content server-private.key
+          Get-Content server-private.key | .\wg.exe pubkey | Set-Content server-public.key
           
-          # Unzip the source code
-          Expand-Archive -Path "socks_source.zip" -DestinationPath "."
+          # Create the WireGuard server configuration file
+          $serverPrivateKey = Get-Content server-private.key
+          @"
+          [Interface]
+          PrivateKey = $serverPrivateKey
+          Address = 10.0.0.1/24
+          ListenPort = 51820
+          "@ | Set-Content wg0.conf
           
-          # --- THE TRUE FORGE ---
-          # Navigate into the correct source directory
-          cd socks5-server-0.0.3
+          # Install and start the WireGuard service
+          .\wireguard.exe /installservice wg0.conf
           
-          # Compile the Go program into socks.exe
-          go build -o socks.exe
-          
-      - name: Start Services (Playit Tunnel and Forged SOCKS Proxy)
+      - name: Start Playit.gg Agent
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
-        run: |
-          # Start the SOCKS5 proxy server we just built from the correct path
-          Start-Process -FilePath "socks5-server-0.0.3\socks.exe" -ArgumentList "-b 0.0.0.0 -p 1080" -NoNewWindow
+        run: Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
           
-          # Start the Playit.gg agent
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
-
-      - name: Keep the GitHub Action Runner Alive
+      - name: Display Client Configuration
         run: |
-          Start-Sleep -Seconds 21000
+          # Display the necessary info for the client PC to connect
+          echo "--- YOUR WIREGUARD CLIENT CONFIG ---"
+          echo "[Interface]"
+          echo "PrivateKey = PASTE_YOUR_LOCAL_PC_PRIVATE_KEY_HERE"
+          echo "Address = 10.0.0.2/24"
+          echo "DNS = 1.1.1.1"
+          echo ""
+          echo "[Peer]"
+          $serverPublicKey = Get-Content "C:\Program Files\WireGuard\server-public.key"
+          echo "PublicKey = $serverPublicKey"
+          echo "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
+          echo "AllowedIPs = 0.0.0.0/0"
+          echo "------------------------------------"
+
+      - name: Keep Runner Alive
+        run: Start-Sleep -Seconds 21000
