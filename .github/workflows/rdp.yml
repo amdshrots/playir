@@ -21,7 +21,7 @@ jobs:
       - name: Start Playit.gg Agent
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
-        run: 
+        run: |
           Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
           Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
       - name: Keep Runner Alive
