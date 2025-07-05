@@ -1,62 +1,31 @@
-name: The Localtunnel WireGuard Gateway
-on:
-  workflow_dispatch:
+name: Network Tunnel Workflow
+
+on: workflow_dispatch # Allows you to trigger it manually
 
 jobs:
   build:
-    runs-on: windows-latest
-    steps:
-      - name: Build and Configure Server
-        id: build_and_configure
-        run: |
-          # --- PART A: DOWNLOAD AND INSTALL ---
-          Write-Host "Installing WireGuard..."
-          Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-0.5.3.msi" -OutFile "wireguard.msi"
-          Start-Process -FilePath "msiexec.exe" -ArgumentList "/i wireguard.msi /qn" -Wait
-          
-          # Install Node.js and localtunnel
-          Write-Host "Installing Localtunnel..."
-          npm install -g localtunnel
-          
-          # --- PART B: CONFIGURE WIREGUARD ---
-          Write-Host "Configuring WireGuard Server..."
-          cd "C:\Program Files\WireGuard"
-          $serverPrivateKey = (.\wg.exe genkey)
-          $serverPublicKey = ($serverPrivateKey | .\wg.exe pubkey)
-          $clientPrivateKey = (.\wg.exe genkey)
-          $clientPublicKey = ($clientPrivateKey | .\wg.exe pubkey)
-          @"
-          [Interface]
-          PrivateKey = $serverPrivateKey
-          Address = 10.0.0.1/24
-          ListenPort = 51820
-          [Peer]
-          PublicKey = $clientPublicKey
-          AllowedIPs = 10.0.0.2/32
-          "@ | Set-Content wg0.conf
-          .\wireguard.exe /installservice wg0.conf
-          New-NetNat -Name "WireGuardNAT" -InternalIPInterfaceAddressPrefix 10.0.0.0/24
-          
-          # --- PART C: OUTPUT THE CLIENT CONFIG ---
-          $clientKeyForDisplay = $clientPrivateKey
-          $serverKeyForDisplay = $serverPublicKey
-          
-          Write-Host "--- COPY EVERYTHING BELOW THIS LINE ---"
-          Write-Host "[Interface]"
-          Write-Host "PrivateKey = $clientKeyForDisplay"
-          Write-Host "Address = 10.0.0.2/24"
-          Write-Host "DNS = 1.1.1.1"
-          Write-Host ""
-          Write-Host "[Peer]"
-          Write-Host "PublicKey = $serverKeyForDisplay"
-          Write-Host "Endpoint = YOUR_LOCALTUNNEL_UDP_ADDRESS:PORT"
-          Write-Host "AllowedIPs = 0.0.0.0/0"
-          Write-Host "PersistentKeepalive = 25"
-          Write-Host "------------------------------------"
+    runs-on: ubuntu-latest
 
-      - name: Launch Gateway and Keep Alive
-        run: |
-          Write-Host "Starting the Localtunnel gateway. This step will run forever."
-          Write-Host "Look for a URL in the log below. It might take a moment to appear."
-          # This command creates the tunnel and keeps the workflow alive.
-          lt --port 51820
+    steps:
+    - name: Set up SSH Server
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openssh-server
+        sudo useradd -m runner
+        sudo bash -c 'echo "runner:runnerpassword" | chpasswd' # Change this password!
+        sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo sed -i 's/PasswordAuthentication no/#PasswordAuthentication no/' /etc/ssh/sshd_config
+        sudo service ssh start
+        echo "SSH Server is running."
+
+    - name: Expose SSH Port using bore.pub
+      run: |
+        curl -LSs https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz | tar zx -C /tmp
+        echo "Bore installed. Starting tunnel..."
+        echo "Connect to the port shown below from your local machine."
+        /tmp/bore local 22 --to bore.pub
+        
+    # You can add your RDP setup step here if you still want it.
+    # It will run in the background while the bore tunnel is active.
+    # - name: Setup RDP
+    #   ... your RDP steps ...
