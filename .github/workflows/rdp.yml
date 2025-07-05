@@ -1,31 +1,40 @@
-name: RDP & SSH Gateway
+name: RDP & SOCKS5 Proxy Tunnel (Revived)
 on:
   workflow_dispatch:
 jobs:
-  setup-gateway:
+  setup-rdp-tunnel:
     runs-on: windows-latest
     steps:
-      - name: Configure RDP & SSH Server
+      - name: Check out the repository
+        uses: actions/checkout@v2
+
+      - name: Download Tools (Playit & SOCKS Proxy)
         run: |
-          # Enable RDP and set user password
+          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+          
+          # --- THE FIX ---
+          # This is a new, working link to a SOCKS5 proxy server.
+          Invoke-WebRequest -Uri "https://github.com/serjs/socks5-server/releases/download/1.0/socks5-server.exe" -OutFile "$env:USERPROFILE\socks.exe"
+          
+          Start-Sleep -Seconds 5
+
+      - name: Configure and Enable RDP
+        run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
           Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
-          
-          # Install and start the native OpenSSH Server
-          Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-          Set-Service -Name sshd -StartupType 'Automatic'
-          Start-Service sshd
 
-      - name: Start Playit.gg Agent
+      - name: Start Services (Playit Tunnel and SOCKS Proxy)
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
         run: |
-          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-          Start-Sleep -Seconds 5  # Give some time for the download to complete
-        
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
-      - name: Keep Runner Alive
-        run: Start-Sleep -Seconds 21000
+          # Start the SOCKS5 proxy server in the background on port 1080
+          Start-Process -FilePath "$env:USERPROFILE\socks.exe" -ArgumentList "-b 0.0.0.0 -p 1080" -NoNewWindow
+          
+          # Start the Playit.gg agent to manage all tunnels
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
+
+      - name: Keep the GitHub Action Runner Alive
+        run: |
+          Start-Sleep -Seconds 21000
