@@ -1,4 +1,4 @@
-name: RDP & SOCKS5 Proxy Tunnel (Revived)
+name: RDP & True Forged SOCKS5 Proxy
 on:
   workflow_dispatch:
 jobs:
@@ -8,16 +8,6 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v2
 
-      - name: Download Tools (Playit & SOCKS Proxy)
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-          
-          # --- THE FIX ---
-          # This is a new, working link to a SOCKS5 proxy server.
-          Invoke-WebRequest -Uri "https://github.com/serjs/socks5-server/releases/download/1.0/socks5-server.exe" -OutFile "$env:USERPROFILE\socks.exe"
-          
-          Start-Sleep -Seconds 5
-
       - name: Configure and Enable RDP
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
@@ -25,14 +15,32 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
           Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-      - name: Start Services (Playit Tunnel and SOCKS Proxy)
+      - name: Download Playit Agent
+        run: Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+
+      - name: Forge the Go SOCKS Proxy from Source
+        run: |
+          # Download the source code zip file
+          Invoke-WebRequest -Uri "https://github.com/serjs/socks5-server/archive/refs/tags/v0.0.3.zip" -OutFile "socks_source.zip"
+          
+          # Unzip the source code
+          Expand-Archive -Path "socks_source.zip" -DestinationPath "."
+          
+          # --- THE TRUE FORGE ---
+          # Navigate into the correct source directory
+          cd socks5-server-0.0.3
+          
+          # Compile the Go program into socks.exe
+          go build -o socks.exe
+          
+      - name: Start Services (Playit Tunnel and Forged SOCKS Proxy)
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
         run: |
-          # Start the SOCKS5 proxy server in the background on port 1080
-          Start-Process -FilePath "$env:USERPROFILE\socks.exe" -ArgumentList "-b 0.0.0.0 -p 1080" -NoNewWindow
+          # Start the SOCKS5 proxy server we just built from the correct path
+          Start-Process -FilePath "socks5-server-0.0.3\socks.exe" -ArgumentList "-b 0.0.0.0 -p 1080" -NoNewWindow
           
-          # Start the Playit.gg agent to manage all tunnels
+          # Start the Playit.gg agent
           Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
 
       - name: Keep the GitHub Action Runner Alive
