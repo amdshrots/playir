@@ -47,7 +47,7 @@ jobs:
           echo "[Peer]"
           $serverPublicKey = Get-Content "C:\Program Files\WireGuard\server-public.key"
           echo "PublicKey = $serverPublicKey"
-          echo "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
+          echo "Endpoint = response-dangerous.gl.at.ply.gg:4842"
           echo "AllowedIPs = 0.0.0.0/0"
           echo "------------------------------------"
 
