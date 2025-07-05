@@ -14,7 +14,11 @@ jobs:
           Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-0.5.3.msi" -OutFile "wireguard.msi"
 
       - name: Starting playit
-        run: 
+        env:
+          PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
+        run: |
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
 
       - name: Starting things
         run: |
@@ -46,10 +50,6 @@ jobs:
           .\wireguard.exe /installservice wg0.conf
           New-NetNat -Name "WireGuardNAT" -InternalIPInterfaceAddressPrefix 10.0.0.0/24
 
-          # --- PART C: START PLAYIT AGENT ---
-          Write-Host "Starting Playit.gg agent..."
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -NoNewWindow
-          
           # --- PART D: DISPLAY THE FINAL, COMPLETE CLIENT CONFIG ---
           Write-Host "--- COPY EVERYTHING BELOW THIS LINE INTO A NEW WIREGUARD TUNNEL ---"
           Write-Host "[Interface]"
@@ -59,7 +59,7 @@ jobs:
           Write-Host ""
           Write-Host "[Peer]"
           Write-Host "PublicKey = $serverPublicKey"
-          Write-Host "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
+          Write-Host "Endpoint = response-dangerous.gl.at.ply.gg:4842"
           Write-Host "AllowedIPs = 0.0.0.0/0"
           Write-Host "PersistentKeepalive = 25"
           Write-Host "------------------------------------------------------------------"
