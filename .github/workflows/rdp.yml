@@ -1,4 +1,4 @@
-name: WireGuard VPN Gateway
+name: WireGuard VPN Gateway (Internet Sharing Enabled)
 on:
   workflow_dispatch:
 jobs:
@@ -13,12 +13,10 @@ jobs:
 
       - name: Configure and Start WireGuard Server
         run: |
-          # Generate the server's private and public keys
           cd "C:\Program Files\WireGuard"
           .\wg.exe genkey | Set-Content server-private.key
           Get-Content server-private.key | .\wg.exe pubkey | Set-Content server-public.key
           
-          # Create the WireGuard server configuration file
           $serverPrivateKey = Get-Content server-private.key
           @"
           [Interface]
@@ -27,9 +25,13 @@ jobs:
           ListenPort = 51820
           "@ | Set-Content wg0.conf
           
-          # Install and start the WireGuard service
           .\wireguard.exe /installservice wg0.conf
           
+      # --- THE FIX: THIS IS THE MOST IMPORTANT STEP ---
+      - name: Enable Internet Sharing (NAT)
+        run: New-NetNat -Name "WireGuardNAT" -InternalIPInterfaceAddressPrefix 10.0.0.0/24
+      # -----------------------------------------------
+
       - name: Start Playit.gg Agent
         env:
           PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
@@ -37,7 +39,6 @@ jobs:
           
       - name: Display Client Configuration
         run: |
-          # Display the necessary info for the client PC to connect
           echo "--- YOUR WIREGUARD CLIENT CONFIG ---"
           echo "[Interface]"
           echo "PrivateKey = PASTE_YOUR_LOCAL_PC_PRIVATE_KEY_HERE"
@@ -47,7 +48,7 @@ jobs:
           echo "[Peer]"
           $serverPublicKey = Get-Content "C:\Program Files\WireGuard\server-public.key"
           echo "PublicKey = $serverPublicKey"
-          echo "Endpoint = response-dangerous.gl.at.ply.gg:4842"
+          echo "Endpoint = YOUR_PLAYIT_UDP_ADDRESS:PORT"
           echo "AllowedIPs = 0.0.0.0/0"
           echo "------------------------------------"
 
