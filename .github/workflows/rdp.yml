@@ -1,4 +1,4 @@
-name: Automated Inception Tunnel (v2)
+name: Automated Inception Tunnel (v3 - Non-Interactive)
 
 on: workflow_dispatch
 
@@ -8,27 +8,28 @@ jobs:
     steps:
     - name: Configure User and SSH Server
       run: |
-        # This command ensures that if any step fails, the entire script stops.
+        # Ensure that if any command fails, the entire script stops immediately.
         $ErrorActionPreference = "Stop"
         
-        # A new, strong password that meets complexity requirements.
-        # YOU CAN AND SHOULD CHANGE THIS to your own complex password.
-        $password = "G1thub-W0rkfl0w-P4ss!"
+        # Define the password. This is the same password as before.
+        $password_text = "G1thub-W0rkfl0w-P4ss!"
         
-        # Create the user with the new password.
-        net user runner $password /add
+        # Convert the plain-text password to a SecureString, as required by New-LocalUser.
+        $password = ConvertTo-SecureString -String $password_text -AsPlainText -Force
         
-        # Add the user to the administrators group.
-        net localgroup administrators runner /add
+        # Create the user using the modern, non-interactive cmdlet.
+        New-LocalUser -Name "runner" -Password $password -FullName "Runner Account" -Description "Tunnel User"
         
-        # Install and configure the OpenSSH Server.
+        # Add the newly created user to the administrators group.
+        Add-LocalGroupMember -Group "Administrators" -Member "runner"
+        
+        # Install and configure the OpenSSH Server (this part remains the same).
         Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
         Set-Service -Name sshd -StartupType 'Automatic'
         Start-Service sshd
-        
-        # Open the firewall for SSH on port 22.
         New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
-        echo "User 'runner' created and SSH Server is running."
+        
+        echo "User 'runner' created successfully via non-interactive cmdlet. SSH Server is running."
 
     - name: Expose SSH Port via Bore.pub
       run: |
