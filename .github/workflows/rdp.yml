@@ -1,4 +1,4 @@
-name: Automated Inception Tunnel
+name: Automated Inception Tunnel (v2)
 
 on: workflow_dispatch
 
@@ -8,28 +8,34 @@ jobs:
     steps:
     - name: Configure User and SSH Server
       run: |
-        # Create a user 'runner' with a password. CHANGE THIS PASSWORD!
-        net user runner runnerpassword /add
+        # This command ensures that if any step fails, the entire script stops.
+        $ErrorActionPreference = "Stop"
+        
+        # A new, strong password that meets complexity requirements.
+        # YOU CAN AND SHOULD CHANGE THIS to your own complex password.
+        $password = "G1thub-W0rkfl0w-P4ss!"
+        
+        # Create the user with the new password.
+        net user runner $password /add
+        
+        # Add the user to the administrators group.
         net localgroup administrators runner /add
         
-        # Install and configure the OpenSSH Server
+        # Install and configure the OpenSSH Server.
         Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
         Set-Service -Name sshd -StartupType 'Automatic'
         Start-Service sshd
         
-        # Open the firewall for SSH on port 22
+        # Open the firewall for SSH on port 22.
         New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
         echo "User 'runner' created and SSH Server is running."
 
     - name: Expose SSH Port via Bore.pub
       run: |
-        # Download and extract bore
         Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
         Expand-Archive -Path .\bore.zip -DestinationPath .
         
         echo "Bore downloaded. Launching tunnel..."
         echo "Find your connection details below. The workflow will hang on this step to keep the tunnel alive."
         
-        # Run bore to expose the local SSH port (22) to the public internet.
-        # This is the final command and will run forever.
         .\bore.exe local 22 --to bore.pub
