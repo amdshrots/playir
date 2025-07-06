@@ -1,4 +1,4 @@
-name: Automated Inception Tunnel (v3 - Non-Interactive)
+name: Automated Inception Tunnel (v4 - DNS Resolver)
 
 on: workflow_dispatch
 
@@ -8,35 +8,32 @@ jobs:
     steps:
     - name: Configure User and SSH Server
       run: |
-        # Ensure that if any command fails, the entire script stops immediately.
         $ErrorActionPreference = "Stop"
-        
-        # Define the password. This is the same password as before.
-        $password_text = "G1thub-W0rkfl0w-P4ss!"
-        
-        # Convert the plain-text password to a SecureString, as required by New-LocalUser.
-        $password = ConvertTo-SecureString -String $password_text -AsPlainText -Force
-        
-        # Create the user using the modern, non-interactive cmdlet.
+        $password = ConvertTo-SecureString -String "G1thub-W0rkfl0w-P4ss!" -AsPlainText -Force
         New-LocalUser -Name "runner" -Password $password -FullName "Runner Account" -Description "Tunnel User"
-        
-        # Add the newly created user to the administrators group.
         Add-LocalGroupMember -Group "Administrators" -Member "runner"
-        
-        # Install and configure the OpenSSH Server (this part remains the same).
         Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
         Set-Service -Name sshd -StartupType 'Automatic'
         Start-Service sshd
         New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
-        
-        echo "User 'runner' created successfully via non-interactive cmdlet. SSH Server is running."
+        echo "User 'runner' created. SSH Server is running."
 
-    - name: Expose SSH Port via Bore.pub
+    - name: Resolve Host IP and Expose Tunnel
       run: |
+        # Resolve the IP address of bore.pub using the runner's reliable DNS.
+        $bore_ip = (Resolve-DnsName -Name bore.pub -Type A).IPAddress
+        
+        echo "------------------------------------------------------------"
+        echo "CRITICAL CONNECTION DATA:"
+        echo "USE THIS IP ADDRESS: $bore_ip"
+        echo "------------------------------------------------------------"
+        
+        # Download and run bore.
         Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
         Expand-Archive -Path .\bore.zip -DestinationPath .
         
         echo "Bore downloaded. Launching tunnel..."
-        echo "Find your connection details below. The workflow will hang on this step to keep the tunnel alive."
+        echo "Find the PORT number below."
         
+        # Launch the tunnel.
         .\bore.exe local 22 --to bore.pub
