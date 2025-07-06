@@ -1,4 +1,4 @@
-name: Network Tunnel Workflow
+name: Playit.gg Tunnel Workflow (APT Method)
 
 on: workflow_dispatch
 
@@ -11,16 +11,25 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y openssh-server
-        # The 'runner' user already exists, so we just set its password.
-        sudo bash -c 'echo "runner:runnerpassword" | chpasswd' # Change this password!
+        sudo bash -c 'echo "runner:runnerpassword" | chpasswd' # You can change this password
         sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
         sudo sed -i 's/PasswordAuthentication no/#PasswordAuthentication no/' /etc/ssh/sshd_config
         sudo service ssh start
-        echo "SSH Server is running for the existing 'runner' user."
+        echo "SSH Server is running."
 
-    - name: Expose SSH Port using bore.pub
+    - name: Install and Run playit.gg Agent
       run: |
-        curl -LSs https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz | tar zx -C /tmp
-        echo "Bore installed. Starting tunnel..."
-        echo "Connect to the port shown below from your local machine."
-        /tmp/bore local 22 --to bore.pub
+        # Add the playit.gg repository key and source
+        curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/playit.gpg >/dev/null
+        echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" | sudo tee /etc/apt/sources.list.d/playit-cloud.list
+        
+        # Update package list and install playit
+        sudo apt update
+        sudo apt install -y playit
+        
+        echo "Playit.gg agent installed via apt. Starting tunnel with secret key..."
+        echo "The tunnel will now connect. Check your playit.gg dashboard."
+        
+        # Run the agent using the secret. Because it's installed via apt,
+        # the 'playit' command is now in the system's PATH.
+        playit --secret ${{ secrets.PL }}
