@@ -1,39 +1,27 @@
-name: Automated Inception Tunnel (v4 - DNS Resolver)
-
-on: workflow_dispatch
+name: Windows RDP via Playit
+on:
+  workflow_dispatch:
 
 jobs:
-  build:
+  rdp-session:
     runs-on: windows-latest
+    timeout-minutes: 240 # Set timeout for 4 hours
     steps:
-    - name: Configure User and SSH Server
-      run: |
-        $ErrorActionPreference = "Stop"
-        $password = ConvertTo-SecureString -String "G1thub-W0rkfl0w-P4ss!" -AsPlainText -Force
-        New-LocalUser -Name "runner" -Password $password -FullName "Runner Account" -Description "Tunnel User"
-        Add-LocalGroupMember -Group "Administrators" -Member "runner"
-        Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-        Set-Service -Name sshd -StartupType 'Automatic'
-        Start-Service sshd
-        New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
-        echo "User 'runner' created. SSH Server is running."
+      - name: Setup User and Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+          echo "RDP configured. User 'runneradmin' password is 'p@ssw0rd!'"
 
-    - name: Resolve Host IP and Expose Tunnel
-      run: |
-        # Resolve the IP address of bore.pub using the runner's reliable DNS.
-        $bore_ip = (Resolve-DnsName -Name bore.pub -Type A).IPAddress
-        
-        echo "------------------------------------------------------------"
-        echo "CRITICAL CONNECTION DATA:"
-        echo "USE THIS IP ADDRESS: $bore_ip"
-        echo "------------------------------------------------------------"
-        
-        # Download and run bore.
-        Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
-        Expand-Archive -Path .\bore.zip -DestinationPath .
-        
-        echo "Bore downloaded. Launching tunnel..."
-        echo "Find the PORT number below."
-        
-        # Launch the tunnel.
-        .\bore.exe local 22 --to bore.pub
+      - name: Download and Launch Tunnel
+        env:
+          PLAYIT_SECRET: ${{ secrets.PL }}
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64-signed.exe" -OutFile "playit.exe"
+          Start-Process -FilePath ".\playit.exe" -ArgumentList "--secret $env:PLAYIT_SECRET" -NoNewWindow
+          echo "Playit tunnel started."
+
+      - name: Keep Alive
+        run: Start-Sleep -Seconds 14400 # Keep alive for 4 hours
