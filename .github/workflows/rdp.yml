@@ -1,9 +1,7 @@
 name: Playit RDP Tunnel
 
 on:
-  pull_request:
-    types:
-      - labeled
+  workflow_dispatch:
 jobs:
   tests:
     if: contains(github.event.pull_request.labels.*.name, 'CUDA CI')
