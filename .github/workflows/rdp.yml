@@ -25,7 +25,7 @@ jobs:
         run: |
           choco install nmap rclone 7zip -y --no-progress
           # ---- FIXED Hydra download ----
-          Invoke-WebRequest -Uri "https://github.com/vanhauser-thc/thc-hydra/releases/download/v9.5/hydra-9.5-win.zip" -OutFile hydra.zip
+          Invoke-WebRequest -Uri "https://github.com/vanhauser-thc/thc-hydra/archive/refs/tags/v9.5.zip" -OutFile hydra.zip
           7z x hydra.zip -oC:\hydra -y
           echo "C:\hydra" | Out-File -Append $env:GITHUB_PATH -Encoding utf8
           # quick password list
