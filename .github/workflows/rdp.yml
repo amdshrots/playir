@@ -21,12 +21,15 @@ jobs:
 
       - name: Install Windows tools
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           choco install nmap rclone 7zip -y --no-progress
-          # Hydra for Windows (via MSYS2 or direct exe)
-          curl -L -o hydra.zip https://github.com/vanhauser-thc/thc-hydra/releases/download/v9.5/hydra-9.5-win.zip
-          7z x hydra.zip -oC:\hydra
-          echo "C:\hydra" >> $GITHUB_PATH
+          # Download pre-compiled Hydra x64 binary
+          Invoke-WebRequest -Uri "https://github.com/vanhauser-thc/thc-hydra/releases/download/v9.5/hydra-9.5-win.zip" -OutFile hydra.zip
+          7z x hydra.zip -oC:\hydra -y
+          echo "C:\hydra" | Out-File -Append $env:GITHUB_PATH -Encoding utf8
+          # small password list for brute
+          Set-Content -NoNewline -Path C:\hydra\passwords.txt -Value "epson`nadmin`nprojector`n123456`npassword"
 
       - name: Scan for open VNC
         id: scan
