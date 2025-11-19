@@ -1,0 +1,93 @@
+name: Windows Tunnel
+on:
+  workflow_dispatch:
+jobs:
+  setup-rdp-tunnel:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v2
+
+      - name: Download and Install Playit
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+          Start-Sleep -Seconds 5  # Give some time for the download to complete
+
+      - name: Enable TS
+        run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+      - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+      - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+      - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+
+      - name: Optimize Windows for Remote Desktop Performance
+        run: |
+          # Disable visual effects for better performance
+          Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "DragFullWindows" -Value 0
+          Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value 0
+          Set-ItemProperty -Path "HKCU:\Control Panel\Desktop\WindowMetrics" -Name "MinAnimate" -Value 0
+          
+          # Adjust power settings to high performance
+          powercfg /setactive SCHEME_MIN
+          
+          # Optimize network settings for RDP
+          netsh int tcp set global autotuninglevel=restricted
+          
+          # Disable unnecessary services
+          Stop-Service -Name "Themes" -Force -ErrorAction SilentlyContinue
+          Stop-Service -Name "Desktop Window Manager Session Manager" -Force -ErrorAction SilentlyContinue
+          
+          # Set RDP to use more resources
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxConnectionTime" -Value 0
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxDisconnectionTime" -Value 0
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
+
+      - name: Apply Purple & Black Theme
+        run: |
+          # Create a theme file
+          $themeContent = @"
+          [Theme]
+          DisplayName=Purple Black Theme
+          
+          [Control Panel\Desktop]
+          Wallpaper=C:\Windows\Web\Wallpaper\Windows\img0.jpg
+          TileWallpaper=0
+          WallpaperStyle=10
+          
+          [VisualStyles]
+          Path=%SystemRoot%\resources\themes\Aero\Aero.msstyles
+          ColorStyle=NormalColor
+          Size=NormalSize
+          
+          [MasterThemeSelector]
+          MTSM=RJSPBS
+          "@
+          
+          # Save the theme file
+          $themeContent | Out-File -FilePath "$env:USERPROFILE\Downloads\PurpleBlack.theme" -Encoding ASCII
+          
+          # Apply the theme
+          Start-Process -FilePath "rundll32.exe" -ArgumentList "themecpl.dll,OpenThemeAction $env:USERPROFILE\Downloads\PurpleBlack.theme"
+          
+          # Set color to purple
+          Set-ItemProperty -Path "HKCU:\Control Panel\Colors" -Name "ActiveTitle" -Value "153 50 204"
+          Set-ItemProperty -Path "HKCU:\Control Panel\Colors" -Name "InactiveTitle" -Value "75 0 130"
+          
+          # Set window color to dark
+          Set-ItemProperty -Path "HKCU:\Control Panel\Colors" -Name "Window" -Value "33 33 33"
+          Set-ItemProperty -Path "HKCU:\Control Panel\Colors" -Name "WindowText" -Value "255 255 255"
+          
+          # Restart explorer to apply changes
+          Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          Start-Process -FilePath "explorer.exe"
+
+      - name: Start Playit and Set Up RDP Tunnel
+        env:
+          PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
+        run: |
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
+          Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+
+      - name: Keep the GitHub Action Runner Alive
+        run: |
+          Start-Sleep -Seconds 11800  # Adjust the duration based on your needs
